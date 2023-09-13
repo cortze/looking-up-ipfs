@@ -1,4 +1,4 @@
-package looking_up_ipfs
+package main
 
 import (
     "os"
