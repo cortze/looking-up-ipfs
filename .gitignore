@@ -1,5 +1,9 @@
-# Ide
+# IDE
 .idea
+
 # binaries
 build/
 
+# CSVs
+*.csv
+*/*.csv
