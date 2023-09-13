@@ -1,4 +1,4 @@
-package looking_up_ipfs
+package benchmark
 
 import (
 	"context"
@@ -61,7 +61,8 @@ func (s *DHTLookupService) Run() error {
 
 	for j := 0; j < s.jobNumber; j++ {
 		// generate cids
-		lookupJob := NewLookupJob(0) // hardcode the job to id=0
+		lookupJob := NewLookupJob(j)
+		s.jobs = append(s.jobs, lookupJob)
 		log.Info("generating cids")
 		for i := 0; i < s.cidNumber; i++ {
 			contentId, err := s.dhtcli.GenRandomCID()
@@ -71,7 +72,7 @@ func (s *DHTLookupService) Run() error {
 			cidMetrics := NewCidMetrics(j, i, contentId, cidProvider)
 			exists := lookupJob.AddCidMetrics(cidMetrics)
 			if exists {
-				log.Warnf("cid %s was already existed")
+				log.Warnf("cid %s was already existed", contentId.String())
 			}
 		}
 
@@ -79,11 +80,13 @@ func (s *DHTLookupService) Run() error {
 		log.Info("providing cids")
 		var errWg errgroup.Group
 		startTime := time.Now()
-		for cidStr, cidMetrics := range lookupJob.Cids {
-			log.Debugf("Publishing %s to IPFS' DHT network", cidStr)
+		provide := func(m *CidMetrics) {
 			errWg.Go(func() error {
-				return s.provideSingleCid(cidMetrics)
+				return s.provideSingleCid(m)
 			})
+		}
+		for _, cidMetrics := range lookupJob.Cids {
+			provide(cidMetrics)
 		}
 		err = errWg.Wait()
 		if err != nil {
@@ -93,14 +96,16 @@ func (s *DHTLookupService) Run() error {
 		lookupJob.AddProvideTimes(startTime, finishTime)
 
 		// retrieve cids
-		log.Info("providing cids")
+		log.Info("pinging cids")
 		var pingErrWg errgroup.Group
 		startTime = time.Now()
-		for cidStr, cidMetrics := range lookupJob.Cids {
-			log.Debugf("Retrieving %s from IPFS' DHT network", cidStr)
+		ping := func(m *CidMetrics) {
 			pingErrWg.Go(func() error {
-				return s.pingSingleCid(cidMetrics)
+				return s.pingSingleCid(m)
 			})
+		}
+		for _, cidMetrics := range lookupJob.Cids {
+			ping(cidMetrics)
 		}
 		err = pingErrWg.Wait()
 		if err != nil {
@@ -118,7 +123,7 @@ func (s *DHTLookupService) provideSingleCid(c *CidMetrics) error {
 	log := logrus.WithFields(logrus.Fields{
 		"cid": c.cid.String(),
 	})
-	log.Debug("providing cid to the public DHT")
+	log.Info("providing cid to the public DHT")
 	ctx, cancel := context.WithTimeout(s.ctx, provideTimeout)
 	defer cancel()
 	startTime := time.Now()
@@ -129,7 +134,7 @@ func (s *DHTLookupService) provideSingleCid(c *CidMetrics) error {
 	c.AddProvide(startTime, duration, provMetrics)
 	log.WithFields(logrus.Fields{
 		"duration": duration,
-	}).Debug("cid's PR provided to the public DHT")
+	}).Info("cid's PR provided to the public DHT")
 	return nil
 }
 
@@ -138,7 +143,7 @@ func (s *DHTLookupService) pingSingleCid(c *CidMetrics) error {
 	log := logrus.WithFields(logrus.Fields{
 		"cid": c.cid.String(),
 	})
-	log.Debug("retrieving cid from the public DHT")
+	log.Info("retrieving cid from the public DHT")
 	ctx, cancel := context.WithTimeout(s.ctx, retreivalTimeout)
 	defer cancel()
 	startTime := time.Now()
@@ -157,7 +162,7 @@ func (s *DHTLookupService) pingSingleCid(c *CidMetrics) error {
 	log.WithFields(logrus.Fields{
 		"retrievable": retrievable,
 		"duration":    duration,
-	}).Debug("cid's retrieval done from the public DHT")
+	}).Info("cid's retrieval done from the public DHT")
 	return nil
 }
 

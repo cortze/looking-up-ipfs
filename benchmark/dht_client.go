@@ -1,12 +1,12 @@
-package looking_up_ipfs
+package benchmark
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"github.com/cortze/ipfs-cid-hoarder/pkg/models"
 	"github.com/cortze/ipfs-cid-hoarder/pkg/p2p"
 	mh "github.com/multiformats/go-multihash"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"

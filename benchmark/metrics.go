@@ -1,4 +1,4 @@
-package looking_up_ipfs
+package benchmark
 
 import (
 	"github.com/ipfs/go-cid"
@@ -178,8 +178,8 @@ func generateIdividualRetrievalSummary(c *LookupJob) (columns []string, rows [][
 		row = append(row, c.pingTime)
 		row = append(row, c.pingProcDuration.Nanoseconds())
 		row = append(row, c.pingResult)
-		row = append(row, c.pingLookupMetrics.GetMinHopsForPeerSet(c.pingLookupMetrics.GetClosestPeers()))
-		row = append(row, c.pingLookupMetrics.GetTotalHops())
+		row = append(row, 0) // c.pingLookupMetrics.GetMinHopsForPeerSet(c.pingLookupMetrics.GetClosestPeers()))
+		row = append(row, 0) // c.pingLookupMetrics.GetTotalHops())
 		rows = append(rows, row)
 	}
 	return columns, rows
