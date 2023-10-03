@@ -10,3 +10,4 @@ build/
 
 # Analysis
 ./venv
+./results
