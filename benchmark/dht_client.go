@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"github.com/cortze/ipfs-cid-hoarder/pkg/models"
-	"github.com/cortze/ipfs-cid-hoarder/pkg/p2p"
 	mh "github.com/multiformats/go-multihash"
 	"sync"
 	"sync/atomic"
@@ -83,7 +81,7 @@ type DHTHost struct {
 	id                  int
 	dht                 *kaddht.IpfsDHT
 	host                host.Host
-	internalMsgNotifier *p2p.MsgNotifier
+	internalMsgNotifier *MsgNotifier
 	initTime            time.Time
 	// dht query related
 	ongoingPings map[cid.Cid]struct{}
@@ -112,7 +110,7 @@ func NewDHTHost(ctx context.Context, opts DHTHostOptions) (*DHTHost, error) {
 
 	// kad dht options
 	var dht *kaddht.IpfsDHT
-	msgSender := p2p.NewCustomMessageSender(opts.BlacklistingUA, opts.WithNotifier)
+	msgSender := NewCustomMessageSender(opts.BlacklistingUA, opts.WithNotifier)
 	limiter := rcmgr.NewFixedLimiter(rcmgr.InfiniteLimits)
 	rm, err := rcmgr.NewResourceManager(limiter)
 	if err != nil {
@@ -128,7 +126,6 @@ func NewDHTHost(ctx context.Context, opts DHTHostOptions) (*DHTHost, error) {
 		libp2p.ResourceManager(rm),
 		libp2p.Transport(tcp.NewTCPTransport),
 		libp2p.Transport(quic.NewTransport),
-		libp2p.DialRanker(p2p.CustomDialRanker),
 		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
 			var err error
 			dhtOpts := make([]kaddht.Option, 0)
@@ -215,7 +212,7 @@ func (h *DHTHost) GetHostID() int {
 	return h.id
 }
 
-func (h *DHTHost) GetMsgNotifier() *p2p.MsgNotifier {
+func (h *DHTHost) GetMsgNotifier() *MsgNotifier {
 	return h.internalMsgNotifier
 }
 
@@ -234,7 +231,7 @@ func (h *DHTHost) isPeerConnected(pId peer.ID) bool {
 func (h *DHTHost) GetUserAgentOfPeer(p peer.ID) (useragent string) {
 	userAgentInterf, err := h.host.Peerstore().Get(p, "AgentVersion")
 	if err != nil {
-		useragent = p2p.NoUserAgentDefined
+		useragent = NoUserAgentDefined
 	} else {
 		useragent = userAgentInterf.(string)
 	}
@@ -259,9 +256,9 @@ func (h *DHTHost) ID() peer.ID {
 }
 
 // dht pinger related methods
-func (h *DHTHost) GetClosestPeersToCid(ctx context.Context, cid *models.CidInfo) (time.Duration, []peer.ID, *kaddht.LookupMetrics, error) {
+func (h *DHTHost) GetClosestPeersToCid(ctx context.Context, cid *cid.Cid) (time.Duration, []peer.ID, *kaddht.LookupMetrics, error) {
 	startT := time.Now()
-	closestPeers, lookupMetrics, err := h.dht.GetClosestPeers(ctx, string(cid.CID.Hash()))
+	closestPeers, lookupMetrics, err := h.dht.GetClosestPeers(ctx, string(cid.Hash()))
 	return time.Since(startT), closestPeers, lookupMetrics, err
 }
 
@@ -273,21 +270,24 @@ func (h *DHTHost) ProvideCid(ctx context.Context, contentID cid.Cid) (time.Durat
 	}).Debug("providing cid with", h.ID().String())
 	startT := time.Now()
 	lookupMetrics, err := h.dht.DetailedProvide(ctx, contentID, true)
+	if lookupMetrics == nil {
+		lookupMetrics = kaddht.NewLookupMetrics()
+	}
 	return time.Since(startT), lookupMetrics, err
 }
 
 func (h *DHTHost) FindXXProvidersOfCID(
 	ctx context.Context,
 	contentID cid.Cid,
-	targetProviders int) (time.Duration, []peer.AddrInfo, error) {
+	targetProviders int) (time.Duration, []peer.AddrInfo, *kaddht.LookupMetrics, error) {
 
 	log.WithFields(log.Fields{
 		"host-id": h.id,
 		"cid":     contentID.Hash().B58String(),
 	}).Debug("looking for providers")
 	startT := time.Now()
-	providers, err := h.dht.LookupForXXProviders(ctx, contentID, targetProviders)
-	return time.Since(startT), providers, err
+	providers, lkm, err := h.dht.LookupForXXProviders(ctx, contentID, targetProviders)
+	return time.Since(startT), providers, lkm, err
 }
 
 func (h *DHTHost) FindProvidersOfCID(

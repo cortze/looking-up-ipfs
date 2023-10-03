@@ -101,14 +101,14 @@ func generateProvideJobSummary(j *LookupJob) (columns []string, rows [][]interfa
 		"cids",
 		"start_time",
 		"finish_time",
-		"duration_ns",
+		"duration_ms",
 	}
 	row := make([]interface{}, 0)
 	row = append(row, j.id)
 	row = append(row, len(j.Cids))
 	row = append(row, j.provideStartTime)
 	row = append(row, j.provideFinishTime)
-	row = append(row, j.provideProcDuration.Nanoseconds())
+	row = append(row, DurationToFloat64Millis(j.provideProcDuration))
 	rows = append(rows, row)
 	return columns, rows
 }
@@ -119,14 +119,14 @@ func generateRetrievalJobSummary(j *LookupJob) (columns []string, rows [][]inter
 		"cids",
 		"start_time",
 		"finish_time",
-		"duration_ns",
+		"duration_ms",
 	}
 	row := make([]interface{}, 0)
 	row = append(row, j.id)
 	row = append(row, len(j.Cids))
 	row = append(row, j.pingStartTime)
 	row = append(row, j.pingFinishTime)
-	row = append(row, j.pingDuration.Nanoseconds())
+	row = append(row, DurationToFloat64Millis(j.pingDuration))
 	rows = append(rows, row)
 	return columns, rows
 }
@@ -138,7 +138,7 @@ func generateIdividualProvidesSummary(c *LookupJob) (columns []string, rows [][]
 		"cid",
 		"provider",
 		"provide_time",
-		"provide_duration_ns",
+		"provide_duration_ms",
 		"hops_to_closest",
 		"total_hops",
 	}
@@ -149,7 +149,7 @@ func generateIdividualProvidesSummary(c *LookupJob) (columns []string, rows [][]
 		row = append(row, c.cid.String())
 		row = append(row, c.provider.String())
 		row = append(row, c.provTime)
-		row = append(row, c.provProcDuration.Nanoseconds())
+		row = append(row, DurationToFloat64Millis(c.provProcDuration))
 		row = append(row, c.provLookupMetrics.GetMinHopsForPeerSet(c.provLookupMetrics.GetClosestPeers()))
 		row = append(row, c.provLookupMetrics.GetTotalHops())
 		rows = append(rows, row)
@@ -164,7 +164,7 @@ func generateIdividualRetrievalSummary(c *LookupJob) (columns []string, rows [][
 		"cid",
 		"provider",
 		"retrieval_time",
-		"retrieval_duration_ns",
+		"retrieval_duration_ms",
 		"retriebable",
 		"hops_to_closest",
 		"total_hops",
@@ -176,10 +176,10 @@ func generateIdividualRetrievalSummary(c *LookupJob) (columns []string, rows [][
 		row = append(row, c.cid.String())
 		row = append(row, c.provider.String())
 		row = append(row, c.pingTime)
-		row = append(row, c.pingProcDuration.Nanoseconds())
+		row = append(row, DurationToFloat64Millis(c.pingProcDuration))
 		row = append(row, c.pingResult)
-		row = append(row, 0) // c.pingLookupMetrics.GetMinHopsForPeerSet(c.pingLookupMetrics.GetClosestPeers()))
-		row = append(row, 0) // c.pingLookupMetrics.GetTotalHops())
+		row = append(row, c.pingLookupMetrics.GetMinHopsForPeerSet(c.pingLookupMetrics.GetClosestPeers()))
+		row = append(row, c.pingLookupMetrics.GetTotalHops())
 		rows = append(rows, row)
 	}
 	return columns, rows

@@ -2,7 +2,6 @@ package benchmark
 
 import (
 	"context"
-	kaddht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -20,7 +19,8 @@ type DHTLookupService struct {
 	ctx context.Context
 
 	// services
-	dhtcli *DHTHost
+	publisherCli *DHTHost
+	pingerCli    *DHTHost
 
 	// study
 	jobNumber int
@@ -32,32 +32,42 @@ type DHTLookupService struct {
 }
 
 func NewLookupService(ctx context.Context, jobNumber, cidNumber int, exportPath string) (*DHTLookupService, error) {
-	cli, err := NewDHTHost(ctx, DefaultDHTcliOptions)
+	pubCli, err := NewDHTHost(ctx, DefaultDHTcliOptions)
 	if err != nil {
-		return nil, errors.Wrap(err, "creating dht cli")
+		return nil, errors.Wrap(err, "creating publisher dht cli")
+	}
+	pingCli, err := NewDHTHost(ctx, DefaultDHTcliOptions)
+	if err != nil {
+		return nil, errors.Wrap(err, "creating pinger dht cli")
 	}
 	return &DHTLookupService{
-		ctx:        ctx,
-		dhtcli:     cli,
-		jobNumber:  jobNumber,
-		cidNumber:  cidNumber,
-		jobs:       make([]*LookupJob, 0),
-		exportPath: exportPath,
+		ctx:          ctx,
+		publisherCli: pubCli,
+		pingerCli:    pingCli,
+		jobNumber:    jobNumber,
+		cidNumber:    cidNumber,
+		jobs:         make([]*LookupJob, 0),
+		exportPath:   exportPath,
 	}, nil
 }
 
 func (s *DHTLookupService) Run() error {
 	// set the logger
 	log := logrus.WithFields(logrus.Fields{
-		"host-id": s.dhtcli.ID().String()})
+		"publisher-host-id": s.publisherCli.ID().String(),
+		"pinger-host-id":    s.pingerCli.ID().String()})
 	log.WithField("cid-number", s.cidNumber).Info("running the Study")
 
 	// bootstrap dht cli
-	err := s.dhtcli.Init()
+	err := s.publisherCli.Init()
 	if err != nil {
-		return errors.Wrap(err, "initialising dht-cli")
+		return errors.Wrap(err, "initialising publisher dht-cli")
 	}
-	cidProvider := s.dhtcli.host.ID()
+	err = s.pingerCli.Init()
+	if err != nil {
+		return errors.Wrap(err, "initialising pinger dht-cli")
+	}
+	cidProvider := s.publisherCli.host.ID()
 
 	for j := 0; j < s.jobNumber; j++ {
 		// generate cids
@@ -65,7 +75,7 @@ func (s *DHTLookupService) Run() error {
 		s.jobs = append(s.jobs, lookupJob)
 		log.Info("generating cids")
 		for i := 0; i < s.cidNumber; i++ {
-			contentId, err := s.dhtcli.GenRandomCID()
+			contentId, err := s.publisherCli.GenRandomCID()
 			if err != nil {
 				return errors.Wrap(err, "generating random CID")
 			}
@@ -90,10 +100,12 @@ func (s *DHTLookupService) Run() error {
 		}
 		err = errWg.Wait()
 		if err != nil {
-			return err
+			logrus.Error(err)
 		}
 		finishTime := time.Now()
 		lookupJob.AddProvideTimes(startTime, finishTime)
+
+		// TODO, do we want to make a delay?
 
 		// retrieve cids
 		log.Info("pinging cids")
@@ -109,7 +121,7 @@ func (s *DHTLookupService) Run() error {
 		}
 		err = pingErrWg.Wait()
 		if err != nil {
-			return err
+			logrus.Error(err)
 		}
 		finishTime = time.Now()
 		lookupJob.AddPingTimes(startTime, finishTime)
@@ -127,15 +139,16 @@ func (s *DHTLookupService) provideSingleCid(c *CidMetrics) error {
 	ctx, cancel := context.WithTimeout(s.ctx, provideTimeout)
 	defer cancel()
 	startTime := time.Now()
-	duration, provMetrics, err := s.dhtcli.ProvideCid(ctx, c.cid)
-	if err != nil {
-		return err
-	}
+	duration, provMetrics, err := s.publisherCli.ProvideCid(ctx, c.cid)
 	c.AddProvide(startTime, duration, provMetrics)
-	log.WithFields(logrus.Fields{
-		"duration": duration,
-	}).Info("cid's PR provided to the public DHT")
-	return nil
+	if err != nil {
+		return errors.Wrap(err, "providing "+c.cid.String())
+	} else {
+		log.WithFields(logrus.Fields{
+			"duration": duration,
+		}).Info("cid's PR provided to the public DHT")
+		return nil
+	}
 }
 
 // pingSingleCid uses the dhthost to pìng the given CID and keeping the relevant info in the CidMetrics
@@ -147,9 +160,9 @@ func (s *DHTLookupService) pingSingleCid(c *CidMetrics) error {
 	ctx, cancel := context.WithTimeout(s.ctx, retreivalTimeout)
 	defer cancel()
 	startTime := time.Now()
-	duration, providers, err := s.dhtcli.FindXXProvidersOfCID(ctx, c.cid, 1)
+	duration, providers, lkm, err := s.pingerCli.FindXXProvidersOfCID(ctx, c.cid, 1)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "pinging "+c.cid.String())
 	}
 	retrievable := false
 	for _, prov := range providers {
@@ -158,7 +171,7 @@ func (s *DHTLookupService) pingSingleCid(c *CidMetrics) error {
 			break
 		}
 	}
-	c.AddPing(startTime, duration, retrievable, kaddht.NewLookupMetrics())
+	c.AddPing(startTime, duration, retrievable, lkm)
 	log.WithFields(logrus.Fields{
 		"retrievable": retrievable,
 		"duration":    duration,
@@ -168,7 +181,8 @@ func (s *DHTLookupService) pingSingleCid(c *CidMetrics) error {
 
 // Close finishes the routines making sure to keep the relevant data
 func (s *DHTLookupService) Close() {
-	s.dhtcli.Close()
+	s.publisherCli.Close()
+	s.pingerCli.Close()
 }
 
 func (s *DHTLookupService) ExportMetrics(outputPath string) error {
