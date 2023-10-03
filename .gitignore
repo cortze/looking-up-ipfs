@@ -7,3 +7,7 @@ build/
 # CSVs
 *.csv
 */*.csv
+
+# Analysis
+./venv
+./results
