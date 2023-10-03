@@ -5,7 +5,7 @@ GIT_SUBM=git submodule
 BIN_PATH=./build
 BIN="./build/looking-up-ipfs"
 
-.PHONY: build install dependencies  clean
+.PHONY: build install dependencies clean
 
 build:
 	$(GOCC) build -o $(BIN)
